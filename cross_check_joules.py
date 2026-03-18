@@ -1,7 +1,7 @@
 import logging
 import sys
 
-from battery_analysis import yield_from_datalog
+from utilities import yield_from_datalog
 
 def main():
     previous_w = None

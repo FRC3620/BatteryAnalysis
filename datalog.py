@@ -4,12 +4,13 @@
 # the WPILib BSD license file in the root directory of this project.
 
 import array
+import logging
 import struct
-import sys
+from logging import basicConfig
 
 from typing import List, SupportsBytes
 
-__all__ = ["StartRecordData", "MetadataRecordData", "DataLogRecord", "DataLogReader"]
+__all__ = ["StartRecordData", "MetadataRecordData", "DataLogRecord", "DataLogReader", "yield_from_datalog", "DataLogDatum"]
 
 floatStruct = struct.Struct("<f")
 doubleStruct = struct.Struct("<d")
@@ -267,6 +268,106 @@ class DataLogReader:
         return DataLogIterator(self.buf, 12 + extraHeaderSize)
 
 
+class DataLogDatum:
+    def __init__(self, name=None, timestamp=None, value=None):
+        self.name = name
+        self.timestamp = timestamp
+        self.value = value
+
+    def __str__(self):
+        return f'{self.name} = {self.value} @ {self.timestamp}'
+
+
+def yield_from_datalog(filename : str = None):
+    """
+
+    :param filename:
+    :return: yields tuples of timestamp, name, value, data type, and raw data
+    """
+    import mmap
+    from datetime import datetime
+
+    with open(filename, "r") as f:
+        mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+        reader = DataLogReader(mm)
+        if not reader:
+            logging.error("not a log file")
+            sys.exit(1)
+
+        entries = {}
+        for record in reader:
+            timestamp = record.timestamp / 1000000
+            if record.isStart():
+                try:
+                    data = record.getStartData()
+                    logging.debug(f"Start({data.entry}, name='{data.name}', type='{data.type}', metadata='{data.metadata}') [{timestamp}]")
+                    if data.entry in entries:
+                        # TODO
+                        logging.warning("...DUPLICATE entry ID, overriding")
+                    entries[data.entry] = data
+                except TypeError:
+                    logging.error("Start(INVALID)")
+            elif record.isFinish():
+                try:
+                    entry = record.getFinishEntry()
+                    logging.debug(f"Finish({entry}) [{timestamp}]")
+                    if entry not in entries:
+                        # TODO
+                        logging.warning("...ID not found")
+                    else:
+                        del entries[entry]
+                except TypeError:
+                    logging.error("Finish(INVALID)")
+            elif record.isSetMetadata():
+                try:
+                    data = record.getSetMetadataData()
+                    logging.debug(f"SetMetadata({data.entry}, '{data.metadata}') [{timestamp}]")
+                    if data.entry not in entries:
+                        # TODO
+                        logging.warning("...ID not found")
+                except TypeError:
+                    logging.error("SetMetadata(INVALID)")
+            elif record.isControl():
+                logging.error("Unrecognized control record")
+            else:
+                logging.debug(f"Data({record.entry}, size={len(record.data)}) ")
+                entry = entries.get(record.entry)
+                if entry is None:
+                    logging.warning("<ID not found>")
+                    continue
+                logging.debug(f"<name='{entry.name}', type='{entry.type}'> [{timestamp}]")
+
+                try:
+                    rv = None
+                    rt = entry.type
+                    if entry.type == "double":
+                        rv = record.getDouble()
+                    elif entry.type == "int64":
+                        rv = record.getInteger()
+                    elif entry.type in ("string", "json"):
+                        rv = record.getString()
+                    elif entry.type == "msgpack":
+                        rv = record.getMsgPack()
+                    elif entry.type == "boolean":
+                        rv = record.getBoolean()
+                    elif entry.type == "boolean[]":
+                        rv = record.getBooleanArray()
+                    elif entry.type == "double[]":
+                        rv = record.getDoubleArray()
+                    elif entry.type == "float[]":
+                        rv = record.getFloatArray()
+                    elif entry.type == "int64[]":
+                        rv = record.getIntegerArray()
+                    elif entry.type == "string[]":
+                        rv = record.getStringArray()
+                    else:
+                        raise TypeError(f"do not recognize type {entry.type}")
+                    battery_data_item = DataLogDatum(name=entry.name, timestamp=timestamp, value=rv)
+                    yield battery_data_item, rt, record.data
+                except TypeError:
+                    logging.error ("got a TypeError")
+                    raise
+
 if __name__ == "__main__":
     import mmap
     import sys
@@ -276,6 +377,7 @@ if __name__ == "__main__":
         print("Usage: datalog.py <file>", file=sys.stderr)
         sys.exit(1)
 
+    logging,basicConfig(level=logging.DEBUG, stream=sys.stderr)
     with open(sys.argv[1], "r") as f:
         mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
         reader = DataLogReader(mm)
