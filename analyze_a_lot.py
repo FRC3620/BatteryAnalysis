@@ -8,15 +8,19 @@ import analyze
 def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument('--verbose', '-v', action='store_true')
-    parser.add_argument('inglob')
+    parser.add_argument('inglob', nargs='+')
     args = parser.parse_args(argv)
 
-    for f in glob.glob(args.inglob):
-        sargs = []
-        if args.verbose:
-            sargs.append('-v')
-        sargs.append(f)
-        analyze.main(sargs)
+    for inglob1 in args.inglob:
+        for f in glob.glob(inglob1):
+            sargs = []
+            if args.verbose:
+                sargs.append('-v')
+            sargs.append(f)
+            try:
+                analyze.main(sargs)
+            except Exception as e:
+                logging.error('trouble processing %s', f, exc_info=e)
 
 
 if __name__ == '__main__':
