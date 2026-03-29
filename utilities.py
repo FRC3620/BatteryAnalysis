@@ -8,15 +8,17 @@ from typing import List, Self, Dict
 from datalog import DataLogDatum, yield_from_datalog
 
 
-class SlidingWindowMean:
-    def __init__(self, l=50):
+class MeanThing:
+    def __init__(self, window_size=None):
         self.v = []
-        self.l = l
+        self.window_size = window_size
 
-    def mean(self, v):
+    def add(self, v):
         self.v.append(v)
-        if len(self.v) > self.l:
+        if self.window_size is not None and len(self.v) > self.window_size:
             del self.v[0]
+
+    def mean(self):
         return sum(self.v)/len(self.v)
 
 
@@ -98,12 +100,12 @@ def yield_samples_from_file(filename : str = None):
 
 def main(argv):
     threshold = 10.90
-    sm = SlidingWindowMean(l=100)
+    sm = MeanThing(window_size=100)
     in_a_row = ConsecutiveLT(n=9, threshold=threshold)
     for battery_data_sample in yield_samples_from_datalog('data/FRC_20260305_005905.wpilog'):
         robot_v = battery_data_sample.item('/Robot/v')
         vv = robot_v.value
-        slm = sm.mean(vv)
+        slm = sm.add(vv)
         #print(','.join(str(v) for v in (battery_data_sample.timestamp, vv, slm, slm < threshold, in_a_row.in_a_row(vv))))
 
         print(battery_data_sample.item('/Robot/pdb/v'))

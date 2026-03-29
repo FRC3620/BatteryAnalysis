@@ -9,7 +9,7 @@ from typing import List
 
 from wpilogwriter import SmartWPILogWriter, WPILogWriter
 
-from utilities import yield_samples_from_file, BatteryDataSample
+from utilities import yield_samples_from_file, BatteryDataSample, MeanThing
 
 class G:
     def __init__(self):
@@ -18,6 +18,8 @@ class G:
         self.j_end = None
         self.soc_end = None
         self.v_noload = None
+        self.v_noload_mean = None
+        self.v_noload_mean50 = None
 
 
 class BatteryDataSampleCollection:
@@ -64,8 +66,13 @@ def process_no_load(collection: BatteryDataSampleCollection, w: WPILogWriter, g:
         logging.warn('got collection with no samples')
         return
     w.log(collection.t0, 'is_on', collection.extras['is_on'])
+    w.log(collection.t0, '/analysis/v_drop', 0.0)
+    w.log(collection.t0, '/analysis/v_drop_mean', 0.0)
+    w.log(collection.t0, '/analysis/v_drop_mean50', 0.0)
     v_noload = 0
     j_at_max_v_noload = None
+    v_mean_thing = MeanThing()
+    v_mean_thing50 = MeanThing(50)
     for sample in collection.samples:
         voltage = sample.item('/Robot/v').value
         j = sample.item('/Robot/pdb/j').value
@@ -78,11 +85,20 @@ def process_no_load(collection: BatteryDataSampleCollection, w: WPILogWriter, g:
 
         log_input_data(sample, w)
         w.log(ts, '/analysis/v_noload', v_noload)
-        w.log(ts, '/analysis/v_drop', 0.0)
 
         soc = calculate_soc(voltage)
-
         w.log(ts, '/analysis/soc', soc)
+
+        if ts - collection.t0 > 0.1:
+            v_mean_thing.add(voltage)
+            v_mean = v_mean_thing.mean()
+            w.log(ts, '/analysis/v_noload_mean', v_mean)
+            w.log(ts, '/analysis/soc_mean', calculate_soc(v_mean))
+
+            v_mean_thing50.add(voltage)
+            v_mean = v_mean_thing50.mean()
+            w.log(ts, '/analysis/v_noload_mean50', v_mean)
+            w.log(ts, '/analysis/soc_mean50', calculate_soc(v_mean))
 
         if g.soc_start is not None:
             g.soc_end = soc
@@ -106,6 +122,10 @@ def process_no_load(collection: BatteryDataSampleCollection, w: WPILogWriter, g:
         g.j_start = j_at_max_v_noload
 
     g.v_noload = None if v_noload == 0 else v_noload
+    v_noload_mean = v_mean_thing.mean()
+    g.v_noload_mean = None if v_noload_mean == 0 else v_noload_mean
+    v_noload_mean50 = v_mean_thing50.mean()
+    g.v_noload_mean50 = None if v_noload_mean50 == 0 else v_noload_mean50
 
 
 def process_load(collection: BatteryDataSampleCollection, w: WPILogWriter, g: G = None):
@@ -115,17 +135,31 @@ def process_load(collection: BatteryDataSampleCollection, w: WPILogWriter, g: G 
         logging.warn('got collection with no samples')
         return
     w.log(collection.t0, 'is_on', collection.extras['is_on'])
+    v_mean_thing = MeanThing()
+    v_mean_thing50 = MeanThing(50)
     for sample in collection.samples:
         log_input_data(sample, w)
-        if g.v_noload is not None:
-            v_drop = g.v_noload - sample.item('/Robot/v').value
+        ts = sample.item('/Robot/hb').timestamp
+        t_since_start = ts - collection.t0
+        if g.v_noload is not None and t_since_start > 0.1:
+            v = sample.item('/Robot/v').value
+            v_drop = g.v_noload - v
+            w.log(ts, '/analysis/v_drop', v_drop)
+
+            v_mean_thing.add(v)
+            v_drop_mean = g.v_noload_mean - v_mean_thing.mean()
+            w.log(ts, '/analysis/v_drop_mean', v_drop_mean)
+
+            v_mean_thing50.add(v)
+            v_drop_mean50 = g.v_noload_mean50 - v_mean_thing50.mean()
+            w.log(ts, '/analysis/v_drop_mean50', v_drop_mean50)
+
             current = sample.total_heater_current()
+            w.log(ts, '/analysis/current', current)
             if current > 0:
-                rint = v_drop/current
-                ts = sample.item('/Robot/hb').timestamp
-                w.log(ts, '/analysis/rint', rint)
-                w.log(ts, '/analysis/v_drop', v_drop)
-                w.log(ts, '/analysis/current', current)
+                w.log(ts, '/analysis/rint', v_drop/current)
+                w.log(ts, '/analysis/rint_mean', v_drop_mean/current)
+                w.log(ts, '/analysis/rint_mean50', v_drop_mean50/current)
 
 
 def main(argv):
@@ -148,7 +182,7 @@ def main(argv):
 
     t0 = time.time()
 
-    batteryId_item = None
+    battery_id_item = None
     run_dt = None
 
     for sample in yield_samples_from_file(args.infile):
@@ -163,15 +197,15 @@ def main(argv):
 
         collection.add(sample)
 
-        systemTime = sample.item('systemTime')
-        if systemTime is not None and run_dt is None:
-            start_time = (systemTime.value / 1000000) - systemTime.timestamp
+        system_time = sample.item('systemTime')
+        if system_time is not None and run_dt is None:
+            start_time = (system_time.value / 1000000) - system_time.timestamp
             run_dt = datetime.datetime.fromtimestamp(start_time)
             logging.info("test started at %s", run_dt)
 
-        batteryId_item = sample.item('/Robot/batteryId')
+        battery_id_item = sample.item('/Robot/batteryId')
 
-    if batteryId_item is None or batteryId_item.value == -1:
+    if battery_id_item is None or battery_id_item.value == -1:
         raise ValueError("no /Robot/batteryId")
 
     if run_dt is None:
@@ -180,7 +214,7 @@ def main(argv):
     if args.output:
         outfile = args.output
     else:
-        outfile = f'{os.path.dirname(args.infile)}/#{batteryId_item.value}_{run_dt.strftime("%Y%m%d-%H%M%S")}.wpilog'
+        outfile = f'{os.path.dirname(args.infile)}/#{battery_id_item.value}_{run_dt.strftime("%Y%m%d-%H%M%S")}.wpilog'
     logging.info("writing %s", outfile)
     w = SmartWPILogWriter(outfile)
 
@@ -198,4 +232,3 @@ def main(argv):
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
     main(sys.argv[1:])
-
