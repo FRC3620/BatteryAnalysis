@@ -18,8 +18,17 @@ class G:
         self.j_end = None
         self.soc_end = None
         self.v_noload = None
-        self.v_noload_mean = None
-        self.v_noload_mean50 = None
+        self.v_load = None
+        self.i_load = None
+        self.t_offset = None
+        self.fake_t = 0
+
+    def t(self, ts):
+        new_ts = ts + self.t_offset
+        if new_ts < 0:
+            new_ts = self.fake_t
+            self.fake_t += 0.000001
+        return new_ts
 
 
 class BatteryDataSampleCollection:
@@ -36,23 +45,23 @@ class BatteryDataSampleCollection:
         self.t_last = ts if self.t_last is None else max(self.t_last, ts)
 
 
-def log_input_data(sample: BatteryDataSample, w: WPILogWriter):
+def log_input_data(sample: BatteryDataSample, w: WPILogWriter, g : G = None):
     total_setpoint = 0
     ts = sample.item('/Robot/hb').timestamp
     for battery_data_item in sample.items_matching(r'/Robot/H\d+/setpoint'):
-        w.log(battery_data_item.timestamp, battery_data_item.name, battery_data_item.value)
+        w.log(g.t(battery_data_item.timestamp), battery_data_item.name, battery_data_item.value)
         total_setpoint += battery_data_item.value
-    w.log(ts, '/analysis/total_setpoint', total_setpoint)
+    w.log(ts + g.t_offset, '/analysis/total_setpoint', total_setpoint)
     for battery_data_item in sample.items_matching(r'/Robot/H\d+/input/a'):
-        w.log(battery_data_item.timestamp, battery_data_item.name, battery_data_item.value)
+        w.log(g.t(battery_data_item.timestamp), battery_data_item.name, battery_data_item.value)
     for regexp in (r'/Metadata/.*', ):
         for item in sample.items_matching(regexp):
-            w.log(item.timestamp, item.name, item.value)
+            w.log(g.t(item.timestamp), item.name, item.value)
     for name in ('/Robot/mode', '/Robot/v', '/Robot/H/a', '/Robot/H/setpoint', '/Robot/batteryId', '/Robot/pdb/j',
                  '/Robot/pdb/a', '/Robot/pdb/v', 'systemTime'):
         v = sample.item(name)
         if v is not None:
-            w.log(v.timestamp, v.name, v.value)
+            w.log(g.t(v.timestamp), v.name, v.value)
 
 
 def calculate_soc(v):
@@ -65,67 +74,52 @@ def process_no_load(collection: BatteryDataSampleCollection, w: WPILogWriter, g:
     if len(collection.samples) == 0:
         logging.warn('got collection with no samples')
         return
-    w.log(collection.t0, 'is_on', collection.extras['is_on'])
-    w.log(collection.t0, '/analysis/v_drop', 0.0)
-    w.log(collection.t0, '/analysis/v_drop_mean', 0.0)
-    w.log(collection.t0, '/analysis/v_drop_mean50', 0.0)
-    v_noload = 0
-    j_at_max_v_noload = None
-    v_mean_thing = MeanThing()
-    v_mean_thing50 = MeanThing(50)
+    g_t_t0 = g.t(collection.t0)
+    w.log(g_t_t0, 'is_on', collection.extras['is_on'])
+
+    v_mean_thing = MeanThing(50)
+    j = None
     for sample in collection.samples:
         voltage = sample.item('/Robot/v').value
         j = sample.item('/Robot/pdb/j').value
-        if voltage > v_noload:
-            v_noload = voltage
-            j_at_max_v_noload = j
 
-        v_noload = max(v_noload, voltage)
         ts = sample.item('/Robot/hb').timestamp
+        g_t_ts = g.t(ts)
 
-        log_input_data(sample, w)
-        w.log(ts, '/analysis/v_noload', v_noload)
+        log_input_data(sample, w, g)
 
-        soc = calculate_soc(voltage)
-        w.log(ts, '/analysis/soc', soc)
-
-        if ts - collection.t0 > 0.1:
-            v_mean_thing.add(voltage)
-            v_mean = v_mean_thing.mean()
-            w.log(ts, '/analysis/v_noload_mean', v_mean)
-            w.log(ts, '/analysis/soc_mean', calculate_soc(v_mean))
-
-            v_mean_thing50.add(voltage)
-            v_mean = v_mean_thing50.mean()
-            w.log(ts, '/analysis/v_noload_mean50', v_mean)
-            w.log(ts, '/analysis/soc_mean50', calculate_soc(v_mean))
+        v_mean_thing.add(voltage)
+        v_mean = v_mean_thing.mean()
+        soc = calculate_soc(v_mean)
+        w.log(g_t_ts, '/analysis/v_noload', v_mean)
+        w.log(g_t_ts, '/analysis/soc', soc)
 
         if g.soc_start is not None:
             g.soc_end = soc
             g.j_end = j
-            w.log_float(ts, '/analysis/j_start', g.j_start)
-            w.log_float(ts, '/analysis/j_end', g.j_end)
-            w.log_float(ts, '/analysis/soc_start', g.soc_start)
-            w.log_float(ts, '/analysis/soc_end', g.soc_end)
+            w.log_float(g_t_ts, '/analysis/j_end', g.j_end)
+            w.log_float(g_t_ts, '/analysis/soc_end', g.soc_end)
 
             soc_delta = g.soc_start - g.soc_end
-            w.log_float(ts, '/analysis/soc_delta', soc_delta)
+            w.log_float(g_t_ts, '/analysis/soc_delta', soc_delta)
             if soc_delta > 0:
                 j_delta = g.j_start - g.j_end
                 capacity_estimate = -j_delta / soc_delta
-                w.log_float(ts, '/analysis/j_delta', -j_delta)
-                w.log_float(ts, '/analysis/capacity_estimate', capacity_estimate)
+                w.log_float(g_t_ts, '/analysis/j_delta', -j_delta)
+                w.log_float(g_t_ts, '/analysis/capacity_estimate', capacity_estimate)
 
-    soc = calculate_soc(v_noload)
+    soc = calculate_soc(v_mean)
     if g.soc_start is None and soc < 1.00:
+        g.j_start = j  # shouldn't matter, j should not move during noload
         g.soc_start = soc
-        g.j_start = j_at_max_v_noload
+        w.log_float(g_t_ts, '/analysis/soc_start', g.soc_start)
+        w.log_float(g_t_ts, '/analysis/j_start', g.j_start)
 
-    g.v_noload = None if v_noload == 0 else v_noload
-    v_noload_mean = v_mean_thing.mean()
-    g.v_noload_mean = None if v_noload_mean == 0 else v_noload_mean
-    v_noload_mean50 = v_mean_thing50.mean()
-    g.v_noload_mean50 = None if v_noload_mean50 == 0 else v_noload_mean50
+    g.v_noload = v_mean
+
+    if g.v_load is not None:
+        rint = (g.v_noload - g.v_load) / g.i_load
+        w.log_float(g_t_ts, '/analysis/rint_reverse', rint)
 
 
 def process_load(collection: BatteryDataSampleCollection, w: WPILogWriter, g: G = None):
@@ -134,32 +128,33 @@ def process_load(collection: BatteryDataSampleCollection, w: WPILogWriter, g: G 
     if len(collection.samples) == 0:
         logging.warn('got collection with no samples')
         return
-    w.log(collection.t0, 'is_on', collection.extras['is_on'])
-    v_mean_thing = MeanThing()
-    v_mean_thing50 = MeanThing(50)
+    w.log(g.t(collection.t0), 'is_on', collection.extras['is_on'])
+    v_mean_thing = MeanThing(50)
+    i_mean_thing = MeanThing(50)
     for sample in collection.samples:
-        log_input_data(sample, w)
+        log_input_data(sample, w, g)
         ts = sample.item('/Robot/hb').timestamp
+        g_t_ts = g.t(ts)
         t_since_start = ts - collection.t0
         if g.v_noload is not None and t_since_start > 0.1:
             v = sample.item('/Robot/v').value
             v_drop = g.v_noload - v
-            w.log(ts, '/analysis/v_drop', v_drop)
+            w.log(g_t_ts, '/analysis/v_drop', v_drop)
 
             v_mean_thing.add(v)
-            v_drop_mean = g.v_noload_mean - v_mean_thing.mean()
-            w.log(ts, '/analysis/v_drop_mean', v_drop_mean)
-
-            v_mean_thing50.add(v)
-            v_drop_mean50 = g.v_noload_mean50 - v_mean_thing50.mean()
-            w.log(ts, '/analysis/v_drop_mean50', v_drop_mean50)
+            v_drop_mean = g.v_noload - v_mean_thing.mean()
+            w.log(g_t_ts, '/analysis/v_drop_mean', v_drop_mean)
 
             current = sample.total_heater_current()
-            w.log(ts, '/analysis/current', current)
+            w.log(g_t_ts, '/analysis/current', current)
+            i_mean_thing.add(current)
+            w.log(g_t_ts, '/analysis/current_mean', i_mean_thing.mean())
             if current > 0:
-                w.log(ts, '/analysis/rint', v_drop/current)
-                w.log(ts, '/analysis/rint_mean', v_drop_mean/current)
-                w.log(ts, '/analysis/rint_mean50', v_drop_mean50/current)
+                w.log(g_t_ts, '/analysis/rint', v_drop/current)
+                w.log(g_t_ts, '/analysis/rint_mean', v_drop_mean/current)
+
+    g.v_load = v_mean_thing.mean()
+    g.i_load = i_mean_thing.mean()
 
 
 def main(argv):
@@ -185,11 +180,15 @@ def main(argv):
     battery_id_item = None
     run_dt = None
 
+    timestamp_at_first_on = None
+
     for sample in yield_samples_from_file(args.infile):
         setpoint = sample.item('/Robot/H/setpoint').value
         robot_mode = sample.item('/Robot/mode').value
 
         is_on = setpoint > 0 and robot_mode != 'DISABLED'
+        if is_on and timestamp_at_first_on is None:
+            timestamp_at_first_on = sample.item('/Robot/hb').timestamp
         if is_on != collection.extras['is_on']:
             collection = BatteryDataSampleCollection()
             collections.append(collection)
@@ -219,12 +218,19 @@ def main(argv):
     w = SmartWPILogWriter(outfile)
 
     g = G()
+    g.t_offset = (- timestamp_at_first_on) + 10
+
     for collection in collections:
         is_on = collection.extras['is_on']
         if not is_on:
             process_no_load(collection, w=w, g=g)
         else:
             process_load(collection, w=w, g=g)
+
+    w.log(0, '/analysis/valid', False)
+    w.log(g.fake_t, '/analysis/valid', True)
+
+    w.close()
 
     logging.info("processing took %s seconds", time.time() - t0)
 

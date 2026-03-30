@@ -29,6 +29,8 @@ class WPILogWriter:
         self.fp.close()
 
     def write_record(self, entry_id : int = None, timestamp : float = None, payload: bytes | bytearray = None):
+        if timestamp < 0:
+            return
         ba = bytearray()
         ba.append(0b00110101)   # 4 byte timestamp length, 2 byte payload size, 2 byte entry id size
         ba.extend(entry_id.to_bytes(length=2, byteorder='little', signed=False))
