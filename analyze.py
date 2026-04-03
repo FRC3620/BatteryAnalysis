@@ -1,6 +1,7 @@
 import argparse
 import datetime
 import glob
+import json
 import logging
 import os.path
 import time
@@ -66,7 +67,7 @@ def log_input_data(sample: BatteryDataSample, w: WPILogWriter, g : G = None):
         for item in sample.items_matching(regexp):
             w.log(g.t(item.timestamp), item.name, item.value)
     for name in ('/Robot/mode', '/Robot/v', '/Robot/H/a', '/Robot/H/setpoint', '/Robot/batteryId', '/Robot/pdb/j',
-                 '/Robot/pdb/a', '/Robot/pdb/v', '/Robot/hb', 'systemTime'):
+                 '/Robot/pdb/a', '/Robot/pdb/v', '/Robot/hb', 'systemTime', '/Robot/cutoff criteria'):
         v = sample.item(name)
         if v is not None:
             w.log(g.t(v.timestamp), v.name, v.value)
@@ -186,12 +187,14 @@ def process(infile, outdir):
     t0 = time.time()
 
     battery_id_item = None
+    cutoff_criteria_item = None
     run_dt = None
 
     timestamp_at_first_on = None
 
     g = G()
 
+    last_sample = None
     for sample in yield_samples_from_file(infile):
         setpoint = sample.item('/Robot/H/setpoint').value
         robot_mode = sample.item('/Robot/mode').value
@@ -212,8 +215,6 @@ def process(infile, outdir):
             run_dt = datetime.datetime.fromtimestamp(start_time)
             logging.info("test started at %s", run_dt)
 
-        battery_id_item = sample.item('/Robot/batteryId')
-
     if collection.extras['is_on']:
         raise ValueError("can't analyze, looks like this test ended with the heaters on?")
 
@@ -222,6 +223,7 @@ def process(infile, outdir):
     collection.remove_from_end(5)
     max_timestamp = collection.t_last
 
+    battery_id_item = sample.item('/Robot/batteryId')
     if battery_id_item is None or battery_id_item.value == -1:
         raise ValueError("no /Robot/batteryId")
     g.final['battery_id'] = battery_id_item.value
@@ -230,6 +232,10 @@ def process(infile, outdir):
         raise ValueError("no systemTime")
     starttime_iso8601 = run_dt.strftime("%Y%m%d-%H%M%S")
     g.final['start_time'] = starttime_iso8601
+
+    cutoff_criteria_item = sample.item('/Robot/cutoff criteria')
+    if cutoff_criteria_item is not None:
+        g.final['cutoff_criteria'] = cutoff_criteria_item.value
 
     outfile = f'{outdir}/#{battery_id_item.value}_{starttime_iso8601}.wpilog'
 
@@ -256,6 +262,9 @@ def process(infile, outdir):
     w.close()
 
     logging.info("final = %s", g.final)
+
+    with open(f'{outdir}/#{battery_id_item.value}_{starttime_iso8601}.json', 'w') as f:
+        json.dump(g.final, f, indent=1, sort_keys=True)
     logging.info("processing took %s seconds", time.time() - t0)
 
 
