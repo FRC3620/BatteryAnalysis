@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import glob
 import logging
 import os.path
 import time
@@ -22,6 +23,7 @@ class G:
         self.i_load = None
         self.t_offset = None
         self.fake_t = 0
+        self.capacity_estimate = None
 
     def t(self, ts):
         new_ts = ts + self.t_offset
@@ -104,9 +106,9 @@ def process_no_load(collection: BatteryDataSampleCollection, w: WPILogWriter, g:
             w.log_float(g_t_ts, '/analysis/soc_delta', soc_delta)
             if soc_delta > 0:
                 j_delta = g.j_start - g.j_end
-                capacity_estimate = -j_delta / soc_delta
+                g.capacity_estimate = -j_delta / soc_delta
                 w.log_float(g_t_ts, '/analysis/j_delta', -j_delta)
-                w.log_float(g_t_ts, '/analysis/capacity_estimate', capacity_estimate)
+                w.log_float(g_t_ts, '/analysis/capacity_estimate', g.capacity_estimate)
 
     soc = calculate_soc(v_mean)
     if g.soc_start is None and soc < 1.00:
@@ -157,17 +159,8 @@ def process_load(collection: BatteryDataSampleCollection, w: WPILogWriter, g: G 
     g.i_load = i_mean_thing.mean()
 
 
-def main(argv):
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--verbose', '-v', action='store_true')
-    parser.add_argument('--output', '-o')
-    parser.add_argument('infile')
-    args = parser.parse_args(argv)
-
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-
-    logging.info("reading %s", args.infile)
+def process(infile, outdir):
+    logging.info("reading %s", infile)
 
     collections = []
 
@@ -182,7 +175,7 @@ def main(argv):
 
     timestamp_at_first_on = None
 
-    for sample in yield_samples_from_file(args.infile):
+    for sample in yield_samples_from_file(infile):
         setpoint = sample.item('/Robot/H/setpoint').value
         robot_mode = sample.item('/Robot/mode').value
 
@@ -210,10 +203,8 @@ def main(argv):
     if run_dt is None:
         raise ValueError("no systemTime")
 
-    if args.output:
-        outfile = args.output
-    else:
-        outfile = f'{os.path.dirname(args.infile)}/#{battery_id_item.value}_{run_dt.strftime("%Y%m%d-%H%M%S")}.wpilog'
+    outfile = f'{outdir}/#{battery_id_item.value}_{run_dt.strftime("%Y%m%d-%H%M%S")}.wpilog'
+
     logging.info("writing %s", outfile)
     w = SmartWPILogWriter(outfile)
 
@@ -233,6 +224,29 @@ def main(argv):
     w.close()
 
     logging.info("processing took %s seconds", time.time() - t0)
+
+
+def main(argv):
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--verbose', '-v', action='store_true')
+    parser.add_argument('--output', '-o')
+    parser.add_argument('inglob', nargs='+')
+    args = parser.parse_args(argv)
+
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    if args.output:
+        if not os.path.isdir(args.output):
+            raise ValueError("--output must be a directory")
+
+    for inglob1 in args.inglob:
+        for infile in glob.glob(inglob1):
+            outdir = args.output if args.output else os.path.dirname(infile)
+            try:
+                process(infile, outdir)
+            except Exception as e:
+                logging.error('trouble processing %s', infile, exc_info=e)
 
 
 if __name__ == '__main__':
