@@ -13,11 +13,11 @@ with open('rollup.csv', 'r', newline='') as f:
         id = row.get('battery_id')
         if int(id) < 110:
             continue
-        v = float(row.get('capacity_estimate'))
+        v = float(row.get('rint_reverse_start'))
 
         data[id].append(v)
 
-data = dict(sorted(data.items(), key=lambda item: statistics.mean(item[1]), reverse=True))
+data = dict(sorted(data.items(), key=lambda item: statistics.mean(item[1])))
 print(json.dumps(data,indent=1))
 
 fig, ax = plt.subplots()
@@ -38,8 +38,5 @@ for group_idx, (name, values) in enumerate(data.items()):
 # Formatting
 ax.set_xticks(range(len(data)))
 ax.set_xticklabels(data.keys())
-
-fig, ax = plt.subplots()
-
 
 plt.show()
