@@ -17,12 +17,18 @@ with open('rollup.csv', 'r', newline='') as f:
 
         data[id].append(v)
 
-data = dict(sorted(data.items(), key=lambda item: statistics.mean(item[1])))
+for k, data1 in data.items():
+    average = statistics.mean(data1)
+    data1.insert(0, average)
+
+data = dict(sorted(data.items(), key=lambda item: item[1][0]))
+
 print(json.dumps(data,indent=1))
 
 fig, ax = plt.subplots()
-width = 0.2
-colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+width = 0.1
+colors = ['#ff0000']
+colors.extend(['#d0d0d0', '#e8e8e8']*10)
 
 # Iterate through groups to plot bars individually
 for group_idx, (name, values) in enumerate(data.items()):
@@ -33,7 +39,7 @@ for group_idx, (name, values) in enumerate(data.items()):
     for bar_idx, val in enumerate(values):
         x_pos = group_idx - start_offset + (bar_idx * width)
         bars = ax.bar(x_pos, val, width, color=colors[bar_idx % len(colors)])
-        ax.bar_label(bars, rotation=90, padding=3)
+        # ax.bar_label(bars, rotation=90, padding=3)
 
 # Formatting
 ax.set_xticks(range(len(data)))
