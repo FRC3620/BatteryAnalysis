@@ -10,19 +10,18 @@ data = collections.defaultdict(list)
 with open('rollup.csv', 'r', newline='') as f:
     r = csv.DictReader(f)
     for row in r:
-        id = row.get('battery_id')
-        if int(id) < 110:
+        battery_id = row.get('battery_id')
+        if battery_id is None or int(battery_id) < 110:
             continue
         v = float(row.get('capacity_estimate'))
 
-        data[id].append(v)
+        data[battery_id].append(v)
 
 for k, data1 in data.items():
     average = statistics.mean(data1)
     data1.insert(0, average)
 
 data = dict(sorted(data.items(), key=lambda item: item[1][0], reverse=True))
-print(json.dumps(data,indent=1))
 
 fig, ax = plt.subplots()
 width = 0.1

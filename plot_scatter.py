@@ -7,18 +7,26 @@ import statistics
 
 import matplotlib.pyplot as plt
 
-data = collections.defaultdict(list)
+ce = collections.defaultdict(list)
+rint = collections.defaultdict(list)
+
+with open('rollup.csv', 'r', newline='') as f:
+    r = csv.DictReader(f)
+    for row in r:
+        battery_id = row.get('battery_id')
+        if battery_id is None or int(battery_id) < 110:
+            continue
+        ce[battery_id].append(float(row.get('capacity_estimate')))
+        rint[battery_id].append(float(row.get('rint_reverse_start')))
 
 x = []
 y = []
 labels = []
 
-with open('rollup.csv', 'r', newline='') as f:
-    r = csv.DictReader(f)
-    for row in r:
-        labels.append(row.get('battery_id'))
-        x.append(float(row.get('capacity_estimate')))
-        y.append(float(row.get('rint_reverse_start')))
+for battery_id in ce.keys():
+    labels.append(battery_id)
+    x.append(statistics.mean(ce[battery_id]))
+    y.append(statistics.mean(rint[battery_id]))
 
 plt.scatter(x, y)
 plt.xlabel("Capacity")

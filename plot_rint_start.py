@@ -10,12 +10,12 @@ data = collections.defaultdict(list)
 with open('rollup.csv', 'r', newline='') as f:
     r = csv.DictReader(f)
     for row in r:
-        id = row.get('battery_id')
-        if int(id) < 110:
+        battery_id = row.get('battery_id')
+        if battery_id is None or int(battery_id) < 110:
             continue
         v = float(row.get('rint_reverse_start'))
 
-        data[id].append(v)
+        data[battery_id].append(v)
 
 for k, data1 in data.items():
     average = statistics.mean(data1)
