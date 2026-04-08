@@ -24,6 +24,9 @@ for k, data1 in data.items():
 data = dict(sorted(data.items(), key=lambda item: item[1][0], reverse=True))
 
 fig, ax = plt.subplots()
+fig.suptitle("Capacity Estimates", fontsize=16, fontweight='bold')
+fig.canvas.manager.set_window_title("Capacity Estimates")
+
 width = 0.1
 colors = ['#ff0000']
 colors.extend(['#d0d0d0', '#e8e8e8']*10)
@@ -43,7 +46,7 @@ for group_idx, (name, values) in enumerate(data.items()):
 ax.set_xticks(range(len(data)))
 ax.set_xticklabels(data.keys())
 
-fig, ax = plt.subplots()
+plt.show()
 
 
 plt.show()
