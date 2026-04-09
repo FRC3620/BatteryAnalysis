@@ -5,31 +5,55 @@ import statistics
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
-def plot_rint_bars(axis, rint, title):
+
+def plot_rint_bars(axis, rint_start, rint_end, title):
     width = 0.1
 
-    colors = ['#ff0000']
-    colors.extend(['#d0d0d0', '#e8e8e8'] * 10)
+    start_colors = ['#00c000']
+    start_colors.extend(['#d0d0d0', '#e8e8e8'] * 10)
 
-    sorted_rint = dict(sorted(rint.items(), key=lambda item: item[1][0]))
+    end_colors = ['#ff0000']
+    end_colors.extend(['#d0d0d0', '#e8e8e8'] * 10)
+
+    sorted_rint = dict(sorted(rint_end.items(), key=lambda item: item[1][0]))
+    sorted_battery_ids = sorted_rint.keys()
 
     # Iterate through groups to plot bars individually
-    for group_idx, (name, values) in enumerate(sorted_rint.items()):
+    group_idx = 0
+    xtick_labels = []
+    for battery_id in sorted_battery_ids:
+        xtick_labels.append(battery_id + "\ns")
+        values = rint_start.get(battery_id)
+
         n_bars = len(values)
         # Calculate starting offset to center the cluster
         start_offset = (n_bars - 1) * width / 2
 
         for bar_idx, val in enumerate(values):
             x_pos = group_idx - start_offset + (bar_idx * width)
-            bars = axis.bar(x_pos, val, width, color=colors[bar_idx % len(colors)])
-            # ax.bar_label(bars, rotation=90, padding=3)
+            bars = axis.bar(x_pos, val, width, color=start_colors[bar_idx % len(start_colors)])
+
+        group_idx += 1
+
+        xtick_labels.append(battery_id + "\ne")
+        values = rint_end.get(battery_id)
+
+        n_bars = len(values)
+        # Calculate starting offset to center the cluster
+        start_offset = (n_bars - 1) * width / 2
+
+        for bar_idx, val in enumerate(values):
+            x_pos = group_idx - start_offset + (bar_idx * width)
+            bars = axis.bar(x_pos, val, width, color=end_colors[bar_idx % len(end_colors)])
+
+        group_idx += 1
 
     # Formatting
     axis.set_xlabel("Battery Id")
     axis.set_ylabel("$r_{int}$ (\u03A9)")
-    axis.set_title(title)
-    axis.set_xticks(range(len(sorted_rint)))
-    axis.set_xticklabels(sorted_rint.keys())
+    axis.set_title(title + " $r_{int}$")
+    axis.set_xticks(range(len(xtick_labels)))
+    axis.set_xticklabels(xtick_labels)
 
 
 rint_reverse_start = collections.defaultdict(list)
@@ -56,11 +80,10 @@ for rint_collection in (rint_reverse_start, rint_reverse_end, bb_rint_start, bb_
 mpl.rcParams["savefig.directory"] = "."
 mpl.rcParams["savefig.format"] = "pdf"
 
-fig, ax = plt.subplots(2, 2, layout="constrained")
-plot_rint_bars(ax[0, 0], rint_reverse_start, "$r_{int}$ @ start (tester)")
-plot_rint_bars(ax[0, 1], rint_reverse_end, "$r_{int}$ @ end (tester)")
-plot_rint_bars(ax[1, 0], bb_rint_start, "$r_{int}$ @ start (beak)")
-plot_rint_bars(ax[1, 1], bb_rint_end, "$r_{int}$ @ end (beak)")
+fig, ax = plt.subplots(2, 1, layout="constrained")
+# "$r_{int}$ @ start
+plot_rint_bars(ax[0], rint_reverse_start, rint_reverse_end, "tester")
+plot_rint_bars(ax[1], bb_rint_start, bb_rint_end, "beak")
 
 fig.suptitle("$r_{int}$", fontweight='bold')
 fig.canvas.manager.set_window_title("rInt")
