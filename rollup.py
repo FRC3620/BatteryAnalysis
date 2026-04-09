@@ -46,7 +46,7 @@ def main(argv):
 
     db = {}
     for row in read_sheet_rows_csv(args.google_sheet):
-        print(row)
+        # print(row)
         db_key = f"{row.get('Battery Id')}-{row.get('Date/time')}"
         if db_key != "-":
             db[db_key] = row
@@ -54,21 +54,26 @@ def main(argv):
 
     field_names = set()
 
+    raw_file_count = 0
+    matched_file_count = 0
     for inglob1 in args.inglob:
         for infile in glob.glob(inglob1):
             with open(infile, 'rb') as f:
+                raw_file_count += 1
                 td = json.load(f)
                 db_key = f"{td['battery_id']}-{td['start_time']}"
                 row = db.get(db_key)
                 if row is not None:
                     row.update(td)
-                    row['analyzed'] = True
                     row['test_name'] = f"{td['battery_id']} {td['start_time']}"
                     field_names.update(row.keys())
+                    matched_file_count += 1
                 else:
-                    logging.warning("cannot find %s", db_key)
+                    logging.warning("file %s, but can't find %s in Google", infile, db_key)
 
     # print(json.dumps(db, indent=1, default=str))
+
+    logging.info ("read %d files, %d matched", raw_file_count, matched_file_count)
 
     field_names.add("sequence")
     field_names.add("test_name")
@@ -82,7 +87,7 @@ def main(argv):
         position = 0
         last_battery_id = None
         for k, v in sorted(db.items(), key=lambda v: v[0]):
-            if not v.get('analyzed', False):
+            if v.get('test_name') is None:
                 continue
             battery_id = v['battery_id']
             if battery_id != last_battery_id:
@@ -94,6 +99,8 @@ def main(argv):
             v['position'] = position
             position += 1
             writer.writerow(v)
+
+        logging.info("wrote %d rows", position)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
