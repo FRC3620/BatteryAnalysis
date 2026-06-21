@@ -6,7 +6,7 @@
 import array
 import logging
 import struct
-from logging import basicConfig
+import sys
 
 from typing import List, SupportsBytes
 
@@ -53,6 +53,9 @@ class MetadataRecordData:
         self.metadata = metadata
 
 
+msgpack_loaded = False
+
+
 class DataLogRecord:
     """A record in the data log. May represent either a control record
     (entry == 0) or a data record."""
@@ -61,7 +64,6 @@ class DataLogRecord:
         self.entry = entry
         self.timestamp = timestamp
         self.data = data
-        self.msgpack_loaded = False
 
     def isControl(self) -> bool:
         return self.entry == 0
@@ -135,10 +137,10 @@ class DataLogRecord:
         return str(self.data, encoding="utf-8")
 
     def getMsgPack(self):
-        if not self.msgpack_loaded:
+        if not msgpack_loaded:
             try:
                 import msgpack
-                self.msgpack_loaded = True
+                msgpack_loaded = True
             except ModuleNotFoundError:
                 raise ImportError("there is msgpack data, but msgpack could not be imported")
         return msgpack.unpackb(self.data)
@@ -401,96 +403,58 @@ def yield_from_datalog(filename : str = None):
                     pass
 
 
-if __name__ == "__main__":
+def main(argv):
+    import argparse
     import mmap
-    import sys
     from datetime import datetime
 
-    if len(sys.argv) != 2:
-        print("Usage: datalog.py <file>", file=sys.stderr)
-        sys.exit(1)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--verbose', '-v', action='store_true')
+    parser.add_argument('--raw', action='store_true')
+    parser.add_argument('input')
+    args = parser.parse_args(argv)
 
-    logging,basicConfig(level=logging.DEBUG, stream=sys.stderr)
-    with open(sys.argv[1], "r") as f:
-        mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-        reader = DataLogReader(mm)
-        if not reader:
-            print("not a log file", file=sys.stderr)
-            sys.exit(1)
+    if args.verbose:
+        logging.getLogger('').setLevel(logging.DEBUG)
 
-        entries = {}
-        for record in reader:
-            timestamp = record.timestamp / 1000000
-            if record.isStart():
-                try:
-                    data = record.getStartData()
-                    print(
-                        f"Start({data.entry}, name='{data.name}', type='{data.type}', metadata='{data.metadata}') [{timestamp}]"
-                    )
-                    if data.entry in entries:
-                        print("...DUPLICATE entry ID, overriding")
-                    entries[data.entry] = data
-                except TypeError:
-                    print("Start(INVALID)")
-            elif record.isFinish():
-                try:
-                    entry = record.getFinishEntry()
-                    print(f"Finish({entry}) [{timestamp}]")
-                    if entry not in entries:
-                        print("...ID not found")
-                    else:
-                        del entries[entry]
-                except TypeError:
-                    print("Finish(INVALID)")
-            elif record.isSetMetadata():
-                try:
-                    data = record.getSetMetadataData()
-                    print(f"SetMetadata({data.entry}, '{data.metadata}') [{timestamp}]")
-                    if data.entry not in entries:
-                        print("...ID not found")
-                except TypeError:
-                    print("SetMetadata(INVALID)")
-            elif record.isControl():
-                print("Unrecognized control record")
-            else:
-                print(f"Data({record.entry}, size={len(record.data)}) ", end="")
-                entry = entries.get(record.entry)
-                if entry is None:
-                    print("<ID not found>")
-                    continue
-                print(f"<name='{entry.name}', type='{entry.type}'> [{timestamp}]")
+    if args.raw:
+        with open(args.input, "r") as f:
+            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+            reader = DataLogReader(mm)
+            if not reader:
+                logging.error("not a log file")
+                sys.exit(1)
 
-                try:
-                    # handle systemTime specially
-                    if entry.name == "systemTime" and entry.type == "int64":
-                        dt = datetime.fromtimestamp(record.getInteger() / 1000000)
-                        print("  {:%Y-%m-%d %H:%M:%S.%f}".format(dt))
-                        continue
+            entries = {}
+            for record in reader:
+                if record.isStart():
+                    try:
+                        data = record.getStartData()
+                        print(type(data), vars(data))
+                    except TypeError:
+                        logging.error("Start(INVALID)")
+                elif record.isFinish():
+                    try:
+                        data = record.getFinishEntry()
+                        print(type(data), vars(data))
+                    except TypeError:
+                        logging.error("Finish(INVALID)")
+                elif record.isSetMetadata():
+                    try:
+                        data = record.getSetMetadataData()
+                        print(type(data), vars(data))
+                    except TypeError:
+                        logging.error("SetMetadata(INVALID)")
+                elif record.isControl():
+                    logging.error("Unrecognized control record")
+                else:
+                    print(type(record), vars(record))
+    else:
+        for t in yield_from_datalog(args.input):
+            datum = t[0]
+            print(vars(datum))
 
-                    if entry.type == "double":
-                        print(f"  {record.getDouble()}")
-                    elif entry.type == "int64":
-                        print(f"  {record.getInteger()}")
-                    elif entry.type in ("string", "json"):
-                        print(f"  '{record.getString()}'")
-                    elif entry.type == "msgpack":
-                        print(f"  '{record.getMsgPack()}'")
-                    elif entry.type == "boolean":
-                        print(f"  {record.getBoolean()}")
-                    elif entry.type == "boolean[]":
-                        arr = record.getBooleanArray()
-                        print(f"  {arr}")
-                    elif entry.type == "double[]":
-                        arr = record.getDoubleArray()
-                        print(f"  {arr}")
-                    elif entry.type == "float[]":
-                        arr = record.getFloatArray()
-                        print(f"  {arr}")
-                    elif entry.type == "int64[]":
-                        arr = record.getIntegerArray()
-                        print(f"  {arr}")
-                    elif entry.type == "string[]":
-                        arr = record.getStringArray()
-                        print(f"  {arr}")
-                except TypeError:
-                    print("  invalid")
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+    main(sys.argv[1:])
