@@ -1,1 +1,98 @@
+# Covers JetBrains IDEs: PyCharm, IntelliJ, WebStorm, AppCode, etc.
+# Reference: https://github.com
+
+*.iml
+*.ipr
+*.iws
+
+## Directory-based project format:
+.idea/
+# If you use the ChangeLists feature, uncomment the line below:
+#  .idea/workspace.xml
+# If you use tasks or servers context, uncomment the line below:
+#  .idea/tasks.xml
+# If you use Shelf feature, uncomment the line below:
+#  .idea/shelf/
+
+## CMake-based projects
+# cmake-build-debug/
+# cmake-build-release/
+
+## MongoDB plugin
+.idea/mongoSettings.xml
+
+## MySQL plugin
+.idea/mysqlDbmsSettings.xml
+
+## Server Configuration plugin
+.idea/deploymentTopolgies.xml
+
+## Data Analytics plugin
+.idea/dataAnalytics.xml
+
+## Crashlytics plugin (for Android Studio development)
+.idea/crashlyticsDiscovery.xml
+
+## Packed application files
+*.apk *.aar *.jar
+
+## Log files
+*.log
+
+## Python-specific local configurations
+.idea/virtualenvFiles.xml
+###########################################################
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+bin/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing and coverage
+.cache
+.pytest_cache/
+.coverage
+.coverage.*
+.htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# Environments / Secrets
+.env
+.yaml
+*.secrets
+###########################################################
 data/
