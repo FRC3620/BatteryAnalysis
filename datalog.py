@@ -10,6 +10,8 @@ from logging import basicConfig
 
 from typing import List, SupportsBytes
 
+import StructDecoder
+
 __all__ = ["StartRecordData", "MetadataRecordData", "DataLogRecord", "DataLogReader", "yield_from_datalog", "DataLogDatum"]
 
 floatStruct = struct.Struct("<f")
@@ -282,10 +284,12 @@ def yield_from_datalog(filename : str = None):
     """
 
     :param filename:
-    :return: yields tuples of timestamp, name, value, data type, and raw data
+    :return: yields tuples of DataLogDatum, data type, raw data, and "is in record" boolean
     """
     import mmap
     from datetime import datetime
+
+    sd = StructDecoder.StructDecoder()
 
     with open(filename, "r") as f:
         mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
@@ -333,14 +337,20 @@ def yield_from_datalog(filename : str = None):
                 logging.debug(f"Data({record.entry}, size={len(record.data)}) ")
                 entry = entries.get(record.entry)
                 if entry is None:
-                    logging.warning("<ID not found>")
+                    logging.warning(" <ID '%s' not found>", record.entry)
                     continue
                 logging.debug(f"<name='{entry.name}', type='{entry.type}'> [{timestamp}]")
 
                 try:
                     rv = None
                     rt = entry.type
-                    if entry.type == "double":
+                    # handle systemTime specially
+                    if entry.name == "systemTime" and entry.type == "int64":
+                        rv = datetime.fromtimestamp(record.getInteger() / 1000000)
+                        rt = "DATETIME"
+                        # print("  {:%Y-%m-%d %H:%M:%S.%f}".format(dt))
+
+                    elif entry.type == "double":
                         rv = record.getDouble()
                     elif entry.type == "int64":
                         rv = record.getInteger()
@@ -360,13 +370,36 @@ def yield_from_datalog(filename : str = None):
                         rv = record.getIntegerArray()
                     elif entry.type == "string[]":
                         rv = record.getStringArray()
+                    elif entry.type == 'structschema':
+                        struct_schema_name = entry.name.removeprefix('/.schema/')
+                        if len(record.data) == 0:
+                            logging.warning("structschema '%s' is zero length", entry.name)
+                            continue
+                        sd.add_schema(struct_schema_name, record.data)
+                        logging.debug("schema %s = %s", struct_schema_name, sd.schemas)
+                    elif entry.type.startswith('struct:'):
+                        try:
+                            decoded = sd.decode(entry.type, record.data)
+                        except ValueError as err:
+                            logging.error("trouble decoding %s with struct '%s': %s", entry.name, entry.type, str(err))
+                            continue
+                        decoded_data = decoded.get('data')
+                        schema = sd.schemas.get(entry.type)
+                        if schema is None:
+                            # impossible, I think
+                            logging.error("StructDecoder had no schema named '%s'", entry.type)
+                            continue
+                        for data_item, value_schema in zip(decoded_data.values(), schema.value_schemas):
+                            datum = DataLogDatum(entry.name + "/" + value_schema.name, timestamp=timestamp, value=data_item)
+                            yield datum, value_schema.type, None, True
                     else:
-                        raise TypeError(f"do not recognize type {entry.type}")
-                    battery_data_item = DataLogDatum(name=entry.name, timestamp=timestamp, value=rv)
-                    yield battery_data_item, rt, record.data
-                except TypeError:
-                    logging.error ("got a TypeError")
-                    raise
+                        logging.error(f"do not recognize type {entry.type}")
+                    if rv is not None:
+                        datum = DataLogDatum(name=entry.name, timestamp=timestamp, value=rv)
+                        yield datum, rt, record.data, False
+                finally:
+                    pass
+
 
 if __name__ == "__main__":
     import mmap
