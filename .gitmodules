@@ -1,0 +1,3 @@
+[submodule "frc3620_wpilog"]
+	path = frc3620_wpilog
+	url = https://github.com/FRC3620/frc3620_wpilog.git
