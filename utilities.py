@@ -3,9 +3,9 @@ import pickle
 import re
 import sys
 
-from typing import List, Self, Dict
+from typing import Self, Dict, Iterator
 
-from datalog import DataLogDatum, yield_from_datalog
+from frc3620_wpilog import DataLogDatum, datalog_datum_iterator
 
 
 class MeanThing:
@@ -67,27 +67,27 @@ class BatteryDataSample:
         return rv
 
 
-def yield_samples_from_datalog(filename : str = None):
+def yield_samples_from_datalog(filename : str = None) -> Iterator[BatteryDataSample]:
     """
 
     :param filename: name of the file to read from
     :return:
     """
     rv = BatteryDataSample()
-    for t in yield_from_datalog(filename):
-        battery_data_item, _, _ = t
+    for t in datalog_datum_iterator(filename):
+        battery_data_item = t[0]
         rv.add(battery_data_item)
         if battery_data_item.name == '/Robot/hb':
             rv.timestamp = battery_data_item.timestamp
             yield BatteryDataSample(rv)
 
-def yield_samples_from_pickle(filename : str = None):
+def yield_samples_from_pickle(filename : str = None) -> Iterator[BatteryDataSample]:
     with open(filename, 'rb') as fp:
         samples = pickle.load(fp)
         for sample in samples:
             yield(sample)
 
-def yield_samples_from_file(filename : str = None):
+def yield_samples_from_file(filename : str = None) -> Iterator[BatteryDataSample]:
     if filename.endswith('.wpilog'):
         for s in yield_samples_from_datalog(filename):
             yield s

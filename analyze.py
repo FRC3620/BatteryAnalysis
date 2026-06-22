@@ -9,7 +9,7 @@ import sys
 
 from typing import List
 
-from wpilogwriter import SmartWPILogWriter, WPILogWriter
+from frc3620_wpilog.wpilogwriter import SmartWPILogWriter, WPILogWriter
 
 from utilities import yield_samples_from_file, BatteryDataSample, MeanThing
 
@@ -70,7 +70,10 @@ def log_input_data(sample: BatteryDataSample, w: WPILogWriter, g : G = None):
                  '/Robot/pdb/a', '/Robot/pdb/v', '/Robot/hb', 'systemTime', '/Robot/cutoff criteria'):
         v = sample.item(name)
         if v is not None:
-            w.log(g.t(v.timestamp), v.name, v.value)
+            vv = v.value
+            if isinstance(vv, datetime.datetime):
+                vv = vv.timestamp()
+            w.log(g.t(v.timestamp), v.name, vv)
 
 
 def calculate_soc(v):
@@ -209,9 +212,10 @@ def process(infile, outdir):
 
         collection.add(sample)
 
-        system_time = sample.item('systemTime')
-        if system_time is not None and run_dt is None:
-            start_time = (system_time.value / 1000000) - system_time.timestamp
+        system_time_datum = sample.item('systemTime')
+        if system_time_datum is not None and run_dt is None:
+            system_time_timestamp = system_time_datum.value.timestamp()
+            start_time = system_time_timestamp - system_time_datum.timestamp
             run_dt = datetime.datetime.fromtimestamp(start_time)
             logging.info("test started at %s", run_dt)
 
